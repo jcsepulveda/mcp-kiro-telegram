@@ -15,7 +15,7 @@ A Python MCP (Model Context Protocol) server that integrates Kiro IDE with Teleg
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/mcp-kiro-telegram.git
+   git clone https://github.com/jcsepulveda/mcp-kiro-telegram.git
    cd mcp-kiro-telegram
    ```
 
@@ -30,6 +30,24 @@ A Python MCP (Model Context Protocol) server that integrates Kiro IDE with Teleg
    ```
 
    Edit `.env` with your Telegram bot token and chat ID.
+
+## Kiro MCP Configuration
+
+Add the following to your `~/.kiro/settings/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "kiro-telegram": {
+      "command": "python3",
+      "args": ["/path/to/mcp-kiro-telegram/server.py"],
+      "cwd": "/path/to/mcp-kiro-telegram"
+    }
+  }
+}
+```
+
+The `cwd` field is required so the server finds the `.env` file at startup.
 
 ## Usage
 
