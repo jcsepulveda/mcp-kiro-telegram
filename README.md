@@ -110,6 +110,7 @@ The recommended steering implements:
 1. **Post-task notification**: summary sent after every completed task.
 2. **Detail prompt**: asks via buttons if the user wants the full response.
 3. **Pre-action confirmation**: blocks before destructive operations.
+4. **Free-text input**: uses `solicitar_input_texto` for open questions instead of waiting in terminal.
 
 ## Compatibility
 
