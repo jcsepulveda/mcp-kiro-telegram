@@ -448,5 +448,108 @@ async def solicitar_confirmacion(
         return f"Error: {exc}"
 
 
+@mcp.tool()
+async def solicitar_input_texto(
+    mensaje: str,
+    timeout: int = 300,
+) -> str:
+    """Sends a question via Telegram and waits for a free-text reply.
+
+    Blocks until the user sends a text message or the timeout elapses.
+
+    Args:
+        mensaje: Question or prompt to display (1-4096 characters)
+        timeout: Seconds to wait for response (10-600, default 300)
+
+    Returns:
+        The user's text reply, or error message.
+    """
+    if not mensaje or not mensaje.strip():
+        return "Error: El mensaje no puede estar vacío"
+
+    if len(mensaje) > 4096:
+        return "Error: El mensaje excede el límite de 4096 caracteres"
+
+    if timeout < 10 or timeout > 600:
+        return "Error: El timeout debe estar entre 10 y 600 segundos"
+
+    # Send the question
+    try:
+        await telegram_client.send_message(mensaje)
+    except RuntimeError as exc:
+        return f"Error: {exc}"
+
+    # Poll for a text message reply
+    try:
+        reply = await poll_for_text_reply(telegram_client, timeout)
+        return reply
+    except TimeoutError:
+        return f"Error: No se recibió respuesta en {timeout} segundos"
+    except RuntimeError as exc:
+        return f"Error: {exc}"
+
+
+async def poll_for_text_reply(
+    client: TelegramClient,
+    timeout_seconds: int,
+) -> str:
+    """Poll getUpdates for a text message from the configured chat.
+
+    Uses long-polling with 10s per-request timeout. On API error, waits 2s
+    and retries. After 3 consecutive errors, raises RuntimeError.
+
+    Args:
+        client: TelegramClient instance to use for API calls.
+        timeout_seconds: Maximum seconds to wait for a text reply.
+
+    Returns:
+        The text content of the user's reply message.
+
+    Raises:
+        TimeoutError: If no text message is received within timeout_seconds.
+        RuntimeError: After 3 consecutive polling failures.
+    """
+    offset = 0
+    consecutive_errors = 0
+    start = time.monotonic()
+
+    while True:
+        elapsed = time.monotonic() - start
+        if elapsed >= timeout_seconds:
+            raise TimeoutError(
+                f"No response received within {timeout_seconds} seconds"
+            )
+
+        try:
+            updates = await client.get_updates(
+                offset=offset,
+                timeout=10,
+                allowed_updates=["message"],
+            )
+        except RuntimeError:
+            consecutive_errors += 1
+            if consecutive_errors >= 3:
+                raise RuntimeError(
+                    "Polling failed: 3 consecutive API errors"
+                )
+            await asyncio.sleep(2)
+            continue
+
+        consecutive_errors = 0
+
+        if updates:
+            max_update_id = max(u["update_id"] for u in updates)
+            offset = max_update_id + 1
+
+            for update in updates:
+                message = update.get("message")
+                if message is None:
+                    continue
+                # Only accept text messages from the configured chat
+                chat_id = str(message.get("chat", {}).get("id", ""))
+                if chat_id == client._chat_id and message.get("text"):
+                    return message["text"]
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")
