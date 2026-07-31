@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 .hypothesis/
 .pytest_cache/
+
+.DS_Store
