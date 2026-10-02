@@ -33,7 +33,14 @@ def load_config() -> Config:
     Raises:
         ValueError: If required environment variables are missing or empty.
     """
-    dotenv.load_dotenv()
+    # Load .env relative to this file so the server works regardless of the
+    # working directory the MCP client launches it from. Fall back to the
+    # default cwd-based search if the file-relative .env is not present.
+    _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.isfile(_env_path):
+        dotenv.load_dotenv(_env_path)
+    else:
+        dotenv.load_dotenv()
 
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -346,6 +353,22 @@ async def poll_for_callback(
 telegram_client: TelegramClient | None = None
 
 
+async def _validate_token_background(client: TelegramClient) -> None:
+    """Validate the bot token without blocking the MCP initialize handshake.
+
+    The MCP client (e.g. Kiro) enforces a startup timeout on the initialize
+    response. Performing a blocking network call (get_me) in lifespan before
+    yielding can exceed that timeout on slower networks/first-run Python
+    startup, causing a "connection closed: initialize response" failure.
+    Running the validation as a background task lets the server respond to
+    initialize immediately while still surfacing auth errors to stderr.
+    """
+    try:
+        await client.get_me()
+    except RuntimeError as exc:
+        print(f"Startup warning (token validation): {exc}", file=sys.stderr)
+
+
 @asynccontextmanager
 async def lifespan(server):
     """Initialize TelegramClient on server start, close on shutdown."""
@@ -359,16 +382,20 @@ async def lifespan(server):
 
     telegram_client = TelegramClient(config)
 
-    try:
-        await telegram_client.get_me()
-    except RuntimeError as exc:
-        print(f"Startup error: {exc}", file=sys.stderr)
-        await telegram_client.close()
-        sys.exit(1)
+    # Validate the token in the background so the initialize handshake
+    # returns immediately and does not hit the MCP client's startup timeout.
+    validation_task = asyncio.create_task(
+        _validate_token_background(telegram_client)
+    )
 
     try:
         yield
     finally:
+        validation_task.cancel()
+        try:
+            await validation_task
+        except (asyncio.CancelledError, Exception):
+            pass
         await telegram_client.close()
 
 
